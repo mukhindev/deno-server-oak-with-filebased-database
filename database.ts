@@ -3,7 +3,7 @@ import { info, success, error } from "./colors.ts";
 
 const PATH_TO_DATABASE = "./database/";
 const POSTFIX_BUNDLE_FILE = "bundle.json";
-const ASSET_FILTER = /config.json|image.png/;
+const ASSET_FILTER = /data.json/;
 
 const listFolders = async (path: string) => {
   let folders: string[] = [];
@@ -21,39 +21,45 @@ const listFiles = async (path: string) => {
   return files;
 };
 
-const hasInDatabase = async (db: string) => {
+const checkDatabase  = async (db: string) => {
   const items = await listFolders(PATH_TO_DATABASE);
   if (items.includes(db)) {
     return { ok: true };
   } else {
-    const message = `Not found database ${db}`;
+    const message = `Not found database "${db}"`;
     console.log(error(message));
     return {
       ok: false,
       message,
-      target: `database.ts -> hasInDatabase('${db}')`,
+      target: `database.ts -> checkDatabase ('${db}')`,
     };
   }
 };
 
 const build = async (db: string) => {
-  console.log(info("Building data..."));
+  console.log(info(`Building data "${db}"...`));
   let data: any = [];
-  for await (const product of await listFolders(`${PATH_TO_DATABASE}/${db}`)) {
-    const id = product;
-    const config = await readJson(
-      `${PATH_TO_DATABASE}/${db}/${product}/config.json`,
-    );
-    const listAssets = await listFiles(`${PATH_TO_DATABASE}/${db}/${product}`);
-    const assets = listAssets.filter((asset) => !ASSET_FILTER.test(asset));
-    data.push({ id, config, assets });
+  for await (const item of await listFolders(`${PATH_TO_DATABASE}/${db}`)) {
+    const id = item;
+
+    let dataJson: any = {}
+
+    try {
+      dataJson = await readJson(`${PATH_TO_DATABASE}/${db}/${item}/data.json`);
+    } catch (error) { }
+
+    const listAssets = await listFiles(`${PATH_TO_DATABASE}/${db}/${item}`);
+    const assets = listAssets
+      .filter((asset) => !ASSET_FILTER.test(asset))
+      .map((asset) => `${db}/${id}/${asset}`)
+    data.push(Object.assign({ id, assets }, dataJson));
   }
   await writeJson(`${PATH_TO_DATABASE}/${db}_${POSTFIX_BUNDLE_FILE}`, data);
-  console.log(success("Successful build!"));
+  console.log(success(`Successful build "${db}_${POSTFIX_BUNDLE_FILE}!"`));
 };
 
-const getAll = async (db: string) => {
-  const test = await hasInDatabase(db);
+const get = async (db: string) => {
+  const test = await checkDatabase(db);
   if (!test.ok) return test;
   return await readJson(`${PATH_TO_DATABASE}/${db}_${POSTFIX_BUNDLE_FILE}`);
 };
@@ -78,23 +84,26 @@ const update = async (
       target,
     };
   }
-  const oldConfig = await readJson(
-    `${PATH_TO_DATABASE}/${db}/${id}/config.json`,
-  );
-  if (!oldConfig) return;
-  const newConfig = Object.assign(oldConfig, body);
-  await writeJson(`${PATH_TO_DATABASE}/${db}/${id}/config.json`, newConfig);
+
+  let dataJson: any = {}
+  
+  try {
+    dataJson = await readJson(`${PATH_TO_DATABASE}/${db}/${id}/data.json`);
+  } catch (error) { }
+  
+  const updatedDataJson = Object.assign(dataJson, body);
+  await writeJson(`${PATH_TO_DATABASE}/${db}/${id}/data.json`, updatedDataJson);
   await build(db);
   const updatedKeysMessage = updatedKeys.toString().replace(/,/, ", ");
   return {
     ok: true,
-    message: `Changed: ${id}, updated properties: ${updatedKeysMessage}`,
+    message: `Update: ${id}, updated properties: ${updatedKeysMessage}`,
     target,
   };
 };
 
 export default {
   build,
-  getAll,
-  update,
+  get,
+  update
 };
